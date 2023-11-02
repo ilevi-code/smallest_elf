@@ -4,10 +4,11 @@
 _start:
     // instruction already executed by patching unused field in elf header:
     // add $4, %al                # system call 4 is write
+  // callw here
+// here:
+//     pop %eax
+//     add $0x60, %al
     inc %ebx
-    jmp load_message
-go_back:
-    pop %ecx
     mov $13, %dl               # number of bytes
     int $0x80
 
@@ -16,9 +17,6 @@ go_back:
     inc %eax
     xor %ebx, %ebx
     int $0x80
-
-load_message:
-    call go_back
 message:
         .ascii  "Hello, world\n"
 

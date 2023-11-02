@@ -8,6 +8,12 @@
 #include <iterator>
 #include <iomanip>
 #include <sys/stat.h>
+#include <arpa/inet.h>
+
+#ifndef offsetof
+#define offsetof(type, field) (&(((type*)NULL)->field))
+#endif
+#define htonll(x) ((((uint64_t)htonl(x & 0xffffffff)) << 32) + htonl((x) >> 32))
 
 void read_into(const char* filename, std::vector<uint8_t>& out)
 {
@@ -21,16 +27,12 @@ void read_into(const char* filename, std::vector<uint8_t>& out)
 
 void write_out(const char* filename, const Elf32_Ehdr& ehdr, const Elf32_Phdr& phdr, const std::vector<uint8_t>& segment)
 {
-    int fd = open(filename, O_WRONLY | O_CREAT, 0775);
+    int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0775);
     write(fd, &ehdr, sizeof(ehdr));
     write(fd, &phdr, sizeof(phdr));
     write(fd, segment.data(), segment.size());
     close(fd);
 }
-#include <arpa/inet.h>
-#ifndef offsetof
-#define offsetof(type, field) (&(((type*)NULL)->field))
-#endif
 
 int main() {
     constexpr const int LOAD_ADDR = 0x08048000;
@@ -62,16 +64,18 @@ int main() {
     hdr.e_type = ET_EXEC;
     hdr.e_machine = EM_386;
     hdr.e_version = EV_CURRENT;
-    hdr.e_entry = LOAD_ADDR + sizeof(hdr) + offsetof(Elf32_Phdr, p_paddr);
+    hdr.e_entry = LOAD_ADDR + offsetof(Elf32_Ehdr, e_shoff);
     hdr.e_phoff = sizeof(hdr);
-    // the following are 2 uint32 fields, which can contain all values without affecting
-    // program loading. posssibly j
-    hdr.e_shoff = 0;
-    hdr.e_flags = 0;
+    // both e_shoff and e_flags are uint32 fields, which can contain all that
+    // are irrelevant to the loader. We fill them with:
+    // add $0x08048060, %ecx
+    // jmp +0x18 (start of p_paddr)
+    *((uint64_t*)&hdr.e_shoff) = htonll(0x81c160800408eb18ULL);
     hdr.e_ehsize = sizeof(hdr);
     hdr.e_phentsize = sizeof(Elf32_Phdr);
     hdr.e_phnum = 1;
-    hdr.e_shentsize = sizeof(Elf32_Shdr);
+    // next three fields are irrelevant. Thats 6 more bytes
+    hdr.e_shentsize = 0xffff;
     hdr.e_shnum = 0;
     hdr.e_shstrndx = SHN_UNDEF;
 
