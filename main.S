@@ -2,7 +2,8 @@
 
 .text
 _start:
-    add $4, %al                # system call 1 is write
+    // instruction already executed by patching unused field in elf header:
+    // add $4, %al                # system call 4 is write
     inc %ebx
     jmp load_message
 go_back:

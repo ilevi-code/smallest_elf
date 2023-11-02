@@ -27,6 +27,10 @@ void write_out(const char* filename, const Elf32_Ehdr& ehdr, const Elf32_Phdr& p
     write(fd, segment.data(), segment.size());
     close(fd);
 }
+#include <arpa/inet.h>
+#ifndef offsetof
+#define offsetof(type, field) (&(((type*)NULL)->field))
+#endif
 
 int main() {
     constexpr const int LOAD_ADDR = 0x08048000;
@@ -38,9 +42,8 @@ int main() {
     phdr.p_type = PT_LOAD;
     phdr.p_offset = 0;
     phdr.p_vaddr = LOAD_ADDR;
-    phdr.p_paddr = 0x12345678;
+    phdr.p_paddr = htonl(0x0404eb10); // add $0x4,%al ; jmp +0x10 (end of phdr, start of instructions)
     phdr.p_filesz = sizeof(phdr) + sizeof(Elf32_Ehdr) + text_section.size();
-    /* phdr.p_filesz = 0x10000; */
     phdr.p_memsz = sizeof(phdr) + sizeof(Elf32_Ehdr) + text_section.size();
     phdr.p_flags = PF_X | PF_R;
     phdr.p_align = 0x1000;
@@ -59,8 +62,10 @@ int main() {
     hdr.e_type = ET_EXEC;
     hdr.e_machine = EM_386;
     hdr.e_version = EV_CURRENT;
-    hdr.e_entry = LOAD_ADDR + sizeof(hdr) + sizeof(phdr);
+    hdr.e_entry = LOAD_ADDR + sizeof(hdr) + offsetof(Elf32_Phdr, p_paddr);
     hdr.e_phoff = sizeof(hdr);
+    // the following are 2 uint32 fields, which can contain all values without affecting
+    // program loading. posssibly j
     hdr.e_shoff = 0;
     hdr.e_flags = 0;
     hdr.e_ehsize = sizeof(hdr);
