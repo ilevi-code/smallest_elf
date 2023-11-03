@@ -35,7 +35,6 @@ void write_out(const char* filename, const Elf32_Ehdr& ehdr, const Elf32_Phdr& p
 }
 
 int main() {
-    constexpr const int LOAD_ADDR = 0x08048000;
     std::vector<uint8_t> text_section;
 
     read_into("main.text", text_section);
@@ -43,8 +42,13 @@ int main() {
     Elf32_Phdr phdr;
     phdr.p_type = PT_LOAD;
     phdr.p_offset = 0;
+    // the lower 2 bytes of the loading address are also instructions.
+    // 43   | inc %ebx
+    // cd80 | int 0x80
+    // 93   | xchg %ebx, %eax
+    constexpr const uint32_t LOAD_ADDR = 0xcd438000;
     phdr.p_vaddr = LOAD_ADDR;
-    phdr.p_paddr = htonl(0x0404eb10); // add $0x4,%al ; jmp +0x10 (end of phdr, start of instructions)
+    phdr.p_paddr = htonl(0x8093eb10);
     phdr.p_filesz = sizeof(phdr) + sizeof(Elf32_Ehdr) + text_section.size();
     phdr.p_memsz = sizeof(phdr) + sizeof(Elf32_Ehdr) + text_section.size();
     phdr.p_flags = PF_X | PF_R;
@@ -68,16 +72,18 @@ int main() {
     hdr.e_phoff = sizeof(hdr);
     // both e_shoff and e_flags are uint32 fields, which can contain all that
     // are irrelevant to the loader. We fill them with:
-    // add $0x08048060, %ecx
-    // jmp +0x18 (start of p_paddr)
-    *((uint64_t*)&hdr.e_shoff) = htonll(0x81c160800408eb18ULL);
+    // 81c1588043cd | add $0x4304805f, %ecx
+    // eb06         | jmp +0x18 (start of p_paddr)
+    *((uint64_t*)&hdr.e_shoff) = htonll(0x81c1588043cdeb06ULL);
     hdr.e_ehsize = sizeof(hdr);
     hdr.e_phentsize = sizeof(Elf32_Phdr);
     hdr.e_phnum = 1;
-    // next three fields are irrelevant. Thats 6 more bytes
-    hdr.e_shentsize = 0xffff;
-    hdr.e_shnum = 0;
-    hdr.e_shstrndx = SHN_UNDEF;
+    // e_shentsize, e_shnum and e_shstrndx are irrelevant. Thats 6 more bytes
+    // 0404 | mov $0x4,%al
+    // b20d | mov $0xd,%dl
+    // jmp +0xa (middle of p_vaddr)
+    *((uint32_t*)&hdr.e_shentsize) = htonl(0x0404b20d);
+    hdr.e_shstrndx = htons(0xeb0a);
 
     write_out("final", hdr, phdr, text_section);
 }
