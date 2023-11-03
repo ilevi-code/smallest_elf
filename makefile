@@ -1,8 +1,2 @@
-final: make_elf main.text
+main: make_elf
 	./make_elf
-
-main.text: main
-	objcopy -O binary --only-section=.text $< $@
-
-main: main.S
-	gcc -o main main.S -m32 -nostdlib -fno-pie -no-pie

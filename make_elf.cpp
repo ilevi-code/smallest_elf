@@ -15,44 +15,17 @@
 #endif
 #define htonll(x) ((((uint64_t)htonl(x & 0xffffffff)) << 32) + htonl((x) >> 32))
 
-void read_into(const char* filename, std::vector<uint8_t>& out)
-{
-    int fd = open(filename, O_RDONLY);
-    struct stat stats;
-    fstat(fd, &stats);
-    out.resize(stats.st_size);
-    auto nread = read(fd, out.data(), out.capacity());
-    close(fd);
-}
-
-void write_out(const char* filename, const Elf32_Ehdr& ehdr, const Elf32_Phdr& phdr, const std::vector<uint8_t>& segment)
+void write_out(const char* filename, const Elf32_Ehdr& ehdr, const Elf32_Phdr& phdr, std::string message)
 {
     int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0775);
     write(fd, &ehdr, sizeof(ehdr));
     write(fd, &phdr, sizeof(phdr));
-    write(fd, segment.data(), segment.size());
+    write(fd, message.data(), message.size());
     close(fd);
 }
 
 int main() {
-    std::vector<uint8_t> text_section;
-
-    read_into("main.text", text_section);
-
-    Elf32_Phdr phdr;
-    phdr.p_type = PT_LOAD;
-    phdr.p_offset = 0;
-    // the lower 2 bytes of the loading address are also instructions.
-    // 43   | inc %ebx
-    // cd80 | int 0x80
-    // 93   | xchg %ebx, %eax
     constexpr const uint32_t LOAD_ADDR = 0xcd438000;
-    phdr.p_vaddr = LOAD_ADDR;
-    phdr.p_paddr = htonl(0x8093eb10);
-    phdr.p_filesz = sizeof(phdr) + sizeof(Elf32_Ehdr) + text_section.size();
-    phdr.p_memsz = sizeof(phdr) + sizeof(Elf32_Ehdr) + text_section.size();
-    phdr.p_flags = PF_X | PF_R;
-    phdr.p_align = 0x1000;
 
     Elf32_Ehdr hdr;
     hdr.e_ident[EI_MAG0] = ELFMAG0;
@@ -72,18 +45,34 @@ int main() {
     hdr.e_phoff = sizeof(hdr);
     // both e_shoff and e_flags are uint32 fields, which can contain all that
     // are irrelevant to the loader. We fill them with:
-    // 81c1588043cd | add $0x4304805f, %ecx
+    // 81c1548043cd | add $0x4304805f, %ecx
     // eb06         | jmp +0x18 (start of p_paddr)
-    *((uint64_t*)&hdr.e_shoff) = htonll(0x81c1588043cdeb06ULL);
+    *((uint64_t*)&hdr.e_shoff) = htonll(0x81c1548043cdeb06ULL);
     hdr.e_ehsize = sizeof(hdr);
     hdr.e_phentsize = sizeof(Elf32_Phdr);
     hdr.e_phnum = 1;
     // e_shentsize, e_shnum and e_shstrndx are irrelevant. Thats 6 more bytes
     // 0404 | mov $0x4,%al
     // b20d | mov $0xd,%dl
-    // jmp +0xa (middle of p_vaddr)
+    // eb0a | jmp +0xa (middle of p_vaddr)
     *((uint32_t*)&hdr.e_shentsize) = htonl(0x0404b20d);
     hdr.e_shstrndx = htons(0xeb0a);
 
-    write_out("final", hdr, phdr, text_section);
+    Elf32_Phdr phdr;
+    phdr.p_type = PT_LOAD;
+    phdr.p_offset = 0;
+    // 2 bytes of the loading address are also instructions
+    // 43   | inc %ebx
+    // cd80 | int 0x80
+    // 97   | xchg %edi, %eax (cause eax will contain 0)
+    // 93   | xchg %ebx, %eax (cause ebx to contains 0, and eax to contain 1)
+    // cd80 | int 0x80
+    phdr.p_vaddr = LOAD_ADDR;
+    phdr.p_paddr = htonl(0x809793cd);
+    phdr.p_filesz = 0x80; // more then the size of the file, which is okay.
+    phdr.p_memsz = 0x80;
+    phdr.p_flags = PF_X | PF_R;
+    phdr.p_align = 0x1000;
+
+    write_out("main", hdr, phdr, "Hello, world\n");
 }
